@@ -433,6 +433,9 @@ ApplicationWindow {
                 objectName: "detail"
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
+                // A name from a file is shown as it's written, and as much of it as fits.
+                textFormat: Text.PlainText
+                elide: Text.ElideMiddle
                 font.pixelSize: 15
                 color: win.muted
                 // What's known of the tune: its name, its tempo and its key.

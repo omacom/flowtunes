@@ -879,6 +879,11 @@ private slots:
         const QByteArray frame = "TIT2" + QByteArray(3, 0) + char(text.size()) + QByteArray(2, 0) + text;
         QVERIFY(write(path, "ID3" + QByteArray("\x03\x00\x00\x00\x00\x00", 6) + char(frame.size()) + frame + m_tone));
         QCOMPARE(Flow::titleOf(path), QString("Côte"));
+        // ID3v2.4 may put a frame's length ahead of its text, and unsynchronise it.
+        const QByteArray marked = "TIT2" + QByteArray(3, 0) + char(11) + QByteArray("\x00\x03", 2) + QByteArray(3, 0) + char(6)
+                                  + QByteArray(1, 0) + QByteArray("\xff\x00", 2) + "Home";
+        QVERIFY(write(path, "ID3" + QByteArray("\x04\x00\x00\x00\x00\x00", 6) + char(marked.size()) + marked + m_tone));
+        QCOMPARE(Flow::titleOf(path), QString("\u00ffHome"));
         QVERIFY(write(path, "no tag here"));
         QCOMPARE(Flow::titleOf(path), QString());
         QCOMPARE(Flow::titleOf(dir.path() + "/gone.mp3"), QString());

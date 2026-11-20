@@ -218,14 +218,24 @@ QString Flow::titleOf(const QString &path) {
     if (head.size() < 10 || !head.startsWith("ID3") || head[3] < 3)
         return {};
     const bool four = head[3] >= 4;
-    const QByteArray tag = file.read(qMin<quint32>(syncsafe(head.constData() + 6), 1 << 20));
+    QByteArray tag = file.read(qMin<quint32>(syncsafe(head.constData() + 6), 1 << 20));
+    // A whole tag of 2.3 written unsynchronised has a nought after every 0xff.
+    const auto restore = [](QByteArray bytes) { return bytes.replace(QByteArray("\xff\x00", 2), "\xff"); };
+    if (!four && head[5] & 0x80)
+        tag = restore(tag);
     qsizetype at = 0;
     if (head[5] & 0x40 && tag.size() >= 4)
         at = four ? syncsafe(tag.constData()) : 4 + qFromBigEndian<quint32>(tag.constData());
     while (at >= 0 && at + 10 <= tag.size() && tag[at] != 0) {
         const char *size = tag.constData() + at + 4;
         const qsizetype length = four ? syncsafe(size) : qFromBigEndian<quint32>(size);
-        const QByteArray body = tag.mid(at + 10, length);
+        QByteArray body = tag.mid(at + 10, length);
+        // 2.4 marks it frame by frame, and may put the frame's length ahead of its text.
+        const char format = tag[at + 9];
+        if (four && (format & 0x02 || head[5] & 0x80))
+            body = restore(body);
+        if (four && format & 0x01)
+            body.remove(0, 4);
         if (tag.mid(at, 4) == "TIT2" && body.size() > 1) {
             const QByteArray text = body.mid(1);
             QString title;
