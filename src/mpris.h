@@ -48,7 +48,7 @@ public:
     // From where it is, or to a point, in microseconds.
     void seek(qint64 offset) { seekTo(m_position * 1000 + offset); }
     void seekTo(qint64 microseconds);
-    // Only a seek in the tune playing now, which this names, as the bus does.
+    // Only a seek in the tune playing now, which this names, to a point in it.
     void seekTo(const QString &tune, qint64 microseconds);
     QString tuneId() const;
 

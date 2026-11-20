@@ -165,7 +165,8 @@ void Mpris::seekTo(qint64 microseconds) {
 }
 
 void Mpris::seekTo(const QString &tune, qint64 microseconds) {
-    if (tune == tuneId())
+    // A point outside the tune is left alone, as the spec has it.
+    if (tune == tuneId() && microseconds >= 0 && microseconds <= m_duration * 1000)
         seekTo(microseconds);
 }
 

@@ -1175,6 +1175,9 @@ private slots:
         QSignalSpy seekAsked(mpris, &Mpris::seekAsked);
         mpris->seekTo("/org/flowtunes/ambient/99", 500000);
         QCOMPARE(seekAsked.size(), 0);
+        // And so is one past its end.
+        mpris->seekTo(mpris->tuneId(), mpris->duration() * 1000 + 1);
+        QCOMPARE(seekAsked.size(), 0);
         mpris->seekTo(mpris->tuneId(), 500000);
         QCOMPARE(seekAsked.size(), 1);
         // Stop goes back to the start and waits there for Play.
