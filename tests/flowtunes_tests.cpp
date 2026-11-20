@@ -462,6 +462,9 @@ private slots:
         QCOMPARE(flow.key(), QString("C minor"));
         QCOMPARE(flow.wave().size(), Flow::waveBars);
         QVERIFY(QFile::exists(flow.track().toLocalFile()));
+        // Named in two words of its genre, kept in the file.
+        QCOMPARE(flow.title().split(' ').size(), 2);
+        QCOMPARE(Flow::titleOf(flow.track().toLocalFile()), flow.title());
         QTRY_VERIFY_WITH_TIMEOUT(server.count("POST /synth") == 3 && !flow.composing(), 10000);
         // And no more than that until the music moves on.
         QTest::qWait(700);
@@ -715,6 +718,8 @@ private slots:
         for (const QString &name : before)
             QVERIFY(write(flow.folder("dnb") + "/" + name, m_tone));
         QVERIFY(write(flow.folder("jazz") + "/20260101-100000.mp3", m_tone));
+        // One has a name of its own.
+        QVERIFY(write(flow.folder("dnb") + "/" + before[1], Flow::titled(m_tone, "Night Bus")));
 
         flow.play("dnb");
         QStringList played;
@@ -726,6 +731,9 @@ private slots:
             // Its tempo and key are read back from its name.
             QCOMPARE(flow.bpm(), name.contains("174") ? 174 : name.contains("170") ? 170 : 0);
             QCOMPARE(flow.key(), name.contains("174") ? QString("F# minor") : QString());
+            // Those without a name are named for their file, the same every time.
+            QRandomGenerator named(quint32(qHash(name, 0)));
+            QCOMPARE(flow.title(), name == before[1] ? QString("Night Bus") : Genres::title("dnb", named));
             played << name;
             // None of them asked anything of the model.
             if (i == 0)
@@ -781,6 +789,9 @@ private slots:
             QCOMPARE(flow.track().fileName(), QString("20260101-100000-90bpm.mp3"));
             flow.next();
             QVERIFY(Flow::sungOf(flow.track().fileName()));
+            // Named for its first line, as none comes back.
+            QCOMPARE(flow.title(), QString("La la la"));
+            QCOMPARE(Flow::titleOf(flow.track().toLocalFile()), QString("La la la"));
             QVERIFY(flow.error().isEmpty());
         }
         // And it's remembered.
@@ -827,6 +838,50 @@ private slots:
         QCOMPARE(shape.last().toDouble(), 1.0);
         QVERIFY(qAbs(shape.first().toDouble() - 0.01) < 0.001);
         QVERIFY(Flow::shapeOf({}).isEmpty());
+    }
+
+    void aTuneIsNamedForItsHookOrItsGenre() {
+        // The line sung most, the first among equals, without its punctuation.
+        QCOMPARE(Flow::hookOf("[Verse]\nWalking home\nUnder the lights,\n[Chorus]\nUnder the lights!\nHold on"), QString("Under the lights"));
+        QCOMPARE(Flow::hookOf("[Verse]\n\"Walking home\"\nUnder the lights"), QString("Walking home"));
+        QCOMPARE(Flow::hookOf("[Instrumental]"), QString());
+        QCOMPARE(Flow::hookOf("And the river carries everything we never said to the sea"), QString("And the river carries everything we"));
+        QCOMPARE(Flow::hookOf(QString(50, QChar(0x6C34))), QString(40, QChar(0x6C34)));
+
+        QRandomGenerator random(3);
+        for (const Genre &genre : Genres::all()) {
+            const QString title = Genres::title(genre.id, random);
+            QVERIFY2(genre.moods.contains(title.section(' ', 0, 0)), qPrintable(title));
+            QVERIFY2(genre.things.contains(title.section(' ', 1)), qPrintable(title));
+        }
+        QVERIFY(Genres::title("polka", random).isEmpty());
+    }
+
+    void aTunesNameIsKeptInItsTag() {
+        QTemporaryDir dir;
+        const QString path = dir.path() + "/tune.mp3";
+        // Written as ID3v2.4 ahead of the sound, any name at all.
+        QVERIFY(write(path, Flow::titled(m_tone, "Smoky Corner")));
+        QCOMPARE(Flow::titleOf(path), QString("Smoky Corner"));
+        QVERIFY(write(path, Flow::titled(m_tone, "夜のバス")));
+        QCOMPARE(Flow::titleOf(path), QString("夜のバス"));
+        // A tag already there gives way, so there's one, and the sound is as it was.
+        const QByteArray tagged = Flow::titled(Flow::titled(m_tone, "First"), "Second");
+        QVERIFY(write(path, tagged));
+        QCOMPARE(Flow::titleOf(path), QString("Second"));
+        QCOMPARE(tagged.count("ID3"), Flow::titled(m_tone, "Second").count("ID3"));
+        QVERIFY(tagged.endsWith(m_tone.mid(m_tone.startsWith("ID3") ? 10 + ((m_tone[6] & 0x7f) << 21 | (m_tone[7] & 0x7f) << 14
+                                                                                | (m_tone[8] & 0x7f) << 7 | (m_tone[9] & 0x7f)) : 0)));
+        // Other players write ID3v2.3, in UTF-16; a file without a tag has no name.
+        QByteArray text("\x01\xff\xfe", 3);
+        for (const QChar c : QString("Côte"))
+            text += char(c.unicode() & 0xff) + QByteArray(1, char(c.unicode() >> 8));
+        const QByteArray frame = "TIT2" + QByteArray(3, 0) + char(text.size()) + QByteArray(2, 0) + text;
+        QVERIFY(write(path, "ID3" + QByteArray("\x03\x00\x00\x00\x00\x00", 6) + char(frame.size()) + frame + m_tone));
+        QCOMPARE(Flow::titleOf(path), QString("Côte"));
+        QVERIFY(write(path, "no tag here"));
+        QCOMPARE(Flow::titleOf(path), QString());
+        QCOMPARE(Flow::titleOf(dir.path() + "/gone.mp3"), QString());
     }
 
     void themeFallsBack() {
@@ -1077,7 +1132,7 @@ private slots:
 
         // The tune arrives, and plays.
         QTRY_VERIFY_WITH_TIMEOUT(!backend.flow()->track().isEmpty(), 10000);
-        QTRY_COMPARE(item(playing, "detail")->property("text").toString(), QString("Tune 1  ·  88 BPM  ·  C minor"));
+        QTRY_COMPARE(item(playing, "detail")->property("text").toString(), backend.flow()->title() + "  ·  88 BPM  ·  C minor");
         QVERIFY(!item(playing, "wave")->property("forming").toBool());
         QTRY_VERIFY(item(playing, "status")->property("text").toString().contains(" / "));
 

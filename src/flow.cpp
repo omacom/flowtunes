@@ -14,6 +14,7 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStringDecoder>
 #include <QtEndian>
 #include <algorithm>
 #include <memory>
@@ -155,6 +156,95 @@ int Flow::sungLines(const QString &lyrics) {
     return sung;
 }
 
+QString Flow::hookOf(const QString &lyrics) {
+    static const QRegularExpression loose("^[\\s\"'“”‘’(]+|[\\s\"'“”‘’),.;:!?…–—-]+$");
+    QStringList sung;
+    QHash<QString, int> times;
+    for (const QString &line : lyrics.split('\n')) {
+        const QString words = QString(line).remove(loose);
+        if (words.isEmpty() || line.trimmed().startsWith('['))
+            continue;
+        sung << words;
+        ++times[words.toCaseFolded()];
+    }
+    QString hook;
+    for (const QString &line : sung)
+        if (hook.isEmpty() || times.value(line.toCaseFolded()) > times.value(hook.toCaseFolded()))
+            hook = line;
+    // A long line is cut between words where it has them.
+    constexpr int longest = 40;
+    if (hook.size() > longest) {
+        const qsizetype space = hook.lastIndexOf(' ', longest);
+        hook = hook.left(space > longest / 3 ? space : longest).remove(loose);
+    }
+    return hook;
+}
+
+namespace {
+
+// An ID3v2 size: 28 bits, seven to a byte.
+quint32 syncsafe(const char *bytes) {
+    quint32 size = 0;
+    for (int i = 0; i < 4; ++i)
+        size = size << 7 | (bytes[i] & 0x7f);
+    return size;
+}
+
+QByteArray syncsafe(quint32 size) {
+    QByteArray bytes(4, 0);
+    for (int i = 0; i < 4; ++i)
+        bytes[3 - i] = char(size >> (7 * i) & 0x7f);
+    return bytes;
+}
+
+} // namespace
+
+QByteArray Flow::titled(const QByteArray &mp3, const QString &title) {
+    qsizetype sound = 0;
+    if (mp3.startsWith("ID3") && mp3.size() >= 10)
+        sound = 10 + syncsafe(mp3.constData() + 6) + (mp3[5] & 0x10 ? 10 : 0);
+    // ID3v2.4, with the name as UTF-8.
+    const QByteArray text = '\x03' + title.toUtf8();
+    const QByteArray frame = "TIT2" + syncsafe(text.size()) + QByteArray(2, 0) + text;
+    return "ID3" + QByteArray("\x04\x00\x00", 3) + syncsafe(frame.size()) + frame + mp3.mid(sound);
+}
+
+QString Flow::titleOf(const QString &path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    const QByteArray head = file.read(10);
+    // ID3v2.3 and 2.4; 2.2 names its frames differently, and is long gone.
+    if (head.size() < 10 || !head.startsWith("ID3") || head[3] < 3)
+        return {};
+    const bool four = head[3] >= 4;
+    const QByteArray tag = file.read(qMin<quint32>(syncsafe(head.constData() + 6), 1 << 20));
+    qsizetype at = 0;
+    if (head[5] & 0x40 && tag.size() >= 4)
+        at = four ? syncsafe(tag.constData()) : 4 + qFromBigEndian<quint32>(tag.constData());
+    while (at >= 0 && at + 10 <= tag.size() && tag[at] != 0) {
+        const char *size = tag.constData() + at + 4;
+        const qsizetype length = four ? syncsafe(size) : qFromBigEndian<quint32>(size);
+        const QByteArray body = tag.mid(at + 10, length);
+        if (tag.mid(at, 4) == "TIT2" && body.size() > 1) {
+            const QByteArray text = body.mid(1);
+            QString title;
+            switch (body[0]) {
+            case 0: title = QString::fromLatin1(text); break;
+            case 1: // UTF-16 behind its byte order mark
+                title = QStringDecoder(text.startsWith("\xff\xfe") ? QStringConverter::Utf16LE : QStringConverter::Utf16BE)(text.mid(2));
+                break;
+            case 2: title = QStringDecoder(QStringConverter::Utf16BE)(text); break;
+            default: title = QString::fromUtf8(text);
+            }
+            // A frame may hold several, each ended by a nought: the first is the name.
+            return title.section(QChar(0), 0, 0).trimmed();
+        }
+        at += 10 + length;
+    }
+    return {};
+}
+
 bool Flow::sungOf(const QString &fileName) {
     static const QRegularExpression played("-instrumental(?:_\\d+)?\\.mp3$");
     return !played.match(fileName).hasMatch();
@@ -210,6 +300,12 @@ void Flow::pump(bool again) {
         const QString name = QFileInfo(track.path).fileName();
         track.bpm = bpmOf(name);
         track.key = keyOf(name);
+        // One without a name of its own is named for its file, the same every time.
+        track.title = titleOf(track.path);
+        if (track.title.isEmpty()) {
+            QRandomGenerator named(quint32(qHash(name, 0)));
+            track.title = Genres::title(m_genre, named);
+        }
         m_filling = true;
         shape(track);
         return;
@@ -263,6 +359,9 @@ void Flow::compose() {
         track.made = true;
         track.bpm = song.value("bpm").toInt();
         track.key = song.value("keyscale").toString();
+        track.title = sung ? hookOf(song.value("lyrics").toString()) : QString();
+        if (track.title.isEmpty())
+            track.title = Genres::title(m_genre, *QRandomGenerator::global());
         submit("/synth", song, [this, track, sung](const QByteArray &rendered) mutable {
             // Parts between lines of a boundary, which the first line is:
             // the MP3 is the first part's body.
@@ -273,6 +372,7 @@ void Flow::compose() {
                 fail(tr("The tune couldn't be made"));
                 return;
             }
+            const QByteArray named = titled(sound, track.title);
             // Among the genre's tunes, under a name none of them has, and
             // whole or not at all.
             const QString tunes = folder(m_genre);
@@ -282,7 +382,7 @@ void Flow::compose() {
             track.path = tunes + "/" + name;
             QSaveFile file(track.path);
             file.setDirectWriteFallback(false);
-            if (!QDir().mkpath(tunes) || !file.open(QIODevice::WriteOnly) || file.write(sound) != sound.size() || !file.commit()) {
+            if (!QDir().mkpath(tunes) || !file.open(QIODevice::WriteOnly) || file.write(named) != named.size() || !file.commit()) {
                 fail(tr("Couldn't save the tune in %1").arg(tunes));
                 return;
             }

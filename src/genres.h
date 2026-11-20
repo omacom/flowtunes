@@ -17,6 +17,9 @@ struct Genre {
     // The same genre as a song someone sings.
     QString song;
     QStringList turns;
+    // What its instrumental tunes are named from: one of each.
+    QStringList moods;
+    QStringList things;
 };
 
 namespace Genres {
@@ -28,5 +31,8 @@ QString name(const QString &id);
 // What the music model is asked for: the genre's sound with two of its
 // turns, without a voice, or with lyrics as a song of the genre with one.
 QString caption(const QString &id, QRandomGenerator &random, bool lyrics = false);
+// A name for a tune nobody sings in: a mood of the genre and a thing of it,
+// "Dusty Notebook". They're English, as tunes' names often are anywhere.
+QString title(const QString &id, QRandomGenerator &random);
 
 } // namespace Genres

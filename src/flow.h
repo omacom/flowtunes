@@ -31,6 +31,10 @@ class Flow : public QObject {
     Q_PROPERTY(QVariantList wave READ wave NOTIFY changed)
     Q_PROPERTY(int bpm READ bpm NOTIFY changed)
     Q_PROPERTY(QString key READ key NOTIFY changed)
+    // Its name: a sung tune's hook, or two words of its genre for one nobody
+    // sings in, kept in the MP3's ID3 tag, where a tune of the user's own
+    // has its name too.
+    Q_PROPERTY(QString title READ title NOTIFY changed)
     // Which tune of this flow it is, from 1.
     Q_PROPERTY(int number READ number NOTIFY changed)
     Q_PROPERTY(bool composing READ composing NOTIFY changed)
@@ -54,6 +58,7 @@ public:
     QVariantList wave() const { return m_current.wave; }
     int bpm() const { return m_current.bpm; }
     QString key() const { return m_current.key; }
+    QString title() const { return m_current.title; }
     int number() const { return m_number; }
     bool composing() const { return m_composing; }
     bool lyrics() const { return m_lyrics; }
@@ -102,6 +107,13 @@ public:
     // The model asked for lyrics doesn't always write any, so it's asked
     // again, this many times at most for one tune.
     static constexpr int lyricsTries = 6;
+    // A sung tune's name: the line its lyrics sing most, the first of them
+    // when none comes back, cut to a title's length.
+    static QString hookOf(const QString &lyrics);
+    // An MP3 with its ID3 tag, if it had one, swapped for one naming it.
+    static QByteArray titled(const QByteArray &mp3, const QString &title);
+    // The name in an MP3's ID3 tag, empty when it has none.
+    static QString titleOf(const QString &path);
     static int bpmOf(const QString &fileName);
     static QString keyOf(const QString &fileName);
 
@@ -114,6 +126,7 @@ private:
         QVariantList wave;
         int bpm = 0;
         QString key;
+        QString title;
         // Made by this flow, rather than found in the genre's folder.
         bool made = false;
     };
