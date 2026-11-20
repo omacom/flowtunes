@@ -93,7 +93,13 @@ private:
 Mpris::Mpris(Flow *flow, QObject *parent) : QObject(parent), m_flow(flow) {
     new Root(this);
     new Player(this);
-    connect(m_flow, &Flow::changed, this, &Mpris::announce);
+    connect(m_flow, &Flow::changed, this, [this] {
+        if (m_flow->track() != m_tune) {
+            m_tune = m_flow->track();
+            ++m_tunes;
+        }
+        announce();
+    });
     connect(this, &Mpris::changed, this, &Mpris::announce);
 }
 
@@ -133,7 +139,7 @@ bool Mpris::hasTune() const { return !m_flow->track().isEmpty(); }
 QString Mpris::playbackStatus() const { return !hasTune() || m_stopped ? "Stopped" : m_paused ? "Paused" : "Playing"; }
 
 QString Mpris::tuneId() const {
-    return hasTune() ? QString("/org/flowtunes/%1/%2").arg(m_flow->genre()).arg(m_flow->number()) : "/org/mpris/MediaPlayer2/TrackList/NoTrack";
+    return hasTune() ? QString("/org/flowtunes/tune/%1").arg(m_tunes) : "/org/mpris/MediaPlayer2/TrackList/NoTrack";
 }
 
 QVariantMap Mpris::metadata() const {

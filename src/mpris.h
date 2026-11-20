@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QUrl>
 #include <QVariantMap>
 
 class Flow;
@@ -75,4 +76,7 @@ private:
     qint64 m_duration = 0;
     QVariantMap m_told;
     bool m_published = false;
+    // Every tune played this run counts one up, so no two share an ID.
+    QUrl m_tune;
+    int m_tunes = 0;
 };

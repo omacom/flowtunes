@@ -1173,7 +1173,7 @@ private slots:
         QVERIFY(!seeked.isEmpty());
         // A seek meant for another tune is left alone.
         QSignalSpy seekAsked(mpris, &Mpris::seekAsked);
-        mpris->seekTo("/org/flowtunes/ambient/99", 500000);
+        mpris->seekTo("/org/flowtunes/tune/99", 500000);
         QCOMPARE(seekAsked.size(), 0);
         // And so is one past its end.
         mpris->seekTo(mpris->tuneId(), mpris->duration() * 1000 + 1);
@@ -1284,8 +1284,15 @@ private slots:
 
         // Next skips on; Pause asks the window to pause.
         QTRY_VERIFY_WITH_TIMEOUT(server.count("POST /synth") >= 2 && !flow.composing(), 10000);
+        const QString firstId = tune.value("mpris:trackid").value<QDBusObjectPath>().path();
         player.call("Next");
         QTRY_COMPARE(flow.number(), 2);
+        // A tune's ID is its own, even after the genre starts over from tune 1.
+        QVERIFY(mpris.tuneId() != firstId);
+        flow.play("lofi");
+        QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
+        QCOMPARE(flow.number(), 1);
+        QVERIFY(mpris.tuneId() != firstId);
         player.call("Pause");
         QTRY_COMPARE(asked.size(), 2);
         QCOMPARE(asked.last().first().toBool(), true);
