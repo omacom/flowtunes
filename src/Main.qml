@@ -93,6 +93,30 @@ ApplicationWindow {
     Component.onCompleted: begin()
     onUsableChanged: begin()
 
+    // The media keys, playerctl and the bar play along over MPRIS. Play with
+    // nothing playing plays the genre the keyboard is on.
+    Binding { target: backend.mpris; property: "paused"; value: win.paused }
+    Binding { target: backend.mpris; property: "position"; value: win.player ? win.player.position : 0 }
+    Binding { target: backend.mpris; property: "duration"; value: win.player ? win.player.duration : 0 }
+    Connections {
+        target: backend.mpris
+        function onPauseAsked(paused) {
+            if (win.flow.genre !== "")
+                win.paused = paused
+            else if (!paused && win.usable)
+                win.pick(win.chosen)
+        }
+        function onSeekAsked(position) {
+            if (win.player && win.player.duration > 0)
+                win.player.seek(position / win.player.duration)
+        }
+        function onRaiseAsked() {
+            win.raise()
+            win.requestActivate()
+        }
+        function onQuitAsked() { win.close() }
+    }
+
     // The model is told to drop a tune it's still making before the app goes.
     onClosing: flow.stop()
 

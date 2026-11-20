@@ -1,3 +1,6 @@
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -27,6 +30,7 @@
 #include "flow.h"
 #include "genres.h"
 #include "models.h"
+#include "mpris.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -1152,6 +1156,25 @@ private slots:
         QTest::keyClick(window, Qt::Key_Space);
         QVERIFY(!window->property("paused").toBool());
 
+        // The media keys do as Space and N do, and Previous starts the tune over.
+        Mpris *mpris = backend.mpris();
+        QCOMPARE(mpris->playbackStatus(), QString("Playing"));
+        QCOMPARE(mpris->metadata().value("xesam:title").toString(), backend.flow()->title());
+        QCOMPARE(mpris->metadata().value("xesam:album").toString(), QString("Ambient"));
+        mpris->playPause();
+        QVERIFY(window->property("paused").toBool());
+        QCOMPARE(mpris->playbackStatus(), QString("Paused"));
+        mpris->play();
+        QVERIFY(!window->property("paused").toBool());
+        QTRY_VERIFY(mpris->position() > 200);
+        QSignalSpy seeked(mpris, &Mpris::seeked);
+        mpris->previous();
+        QTRY_VERIFY(mpris->position() < 200);
+        QVERIFY(!seeked.isEmpty());
+        const int playingNumber = backend.flow()->number();
+        mpris->next();
+        QVERIFY(backend.flow()->number() > playingNumber || backend.flow()->track().isEmpty());
+
         // L turns the lyrics on and off, as the switch under the genre shows.
         auto *lyrics = item(playing, "lyrics");
         QVERIFY(!lyrics->property("checked").toBool());
@@ -1202,6 +1225,55 @@ private slots:
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
         QCoreApplication::removeTranslator(&translator);
+    }
+
+    void mprisAnswersOnTheSessionBus() {
+        if (!QDBusConnection::sessionBus().isConnected())
+            QSKIP("No session bus");
+        QTemporaryDir dir;
+        FakeServer server;
+        server.sound = m_tone;
+        engineWith(dir.path(), "active", server.origin());
+        Models models(dir.path(), dir.path() + "/key", fakeEngine(dir.path()));
+        Flow flow(&models, dir.path() + "/music");
+        Mpris mpris(&flow);
+        const QString name = QString("flowtunes_test%1").arg(QCoreApplication::applicationPid());
+        QVERIFY(mpris.publish(name));
+        const QString service = "org.mpris.MediaPlayer2." + name;
+        QDBusInterface root(service, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2");
+        QDBusInterface player(service, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player");
+        QCOMPARE(root.property("Identity").toString(), QString("Flowtunes"));
+        QCOMPARE(root.property("DesktopEntry").toString(), QString("flowtunes"));
+        QCOMPARE(player.property("PlaybackStatus").toString(), QString("Stopped"));
+        QVERIFY(!player.property("CanGoNext").toBool());
+
+        // Play with nothing playing asks the window to play.
+        QSignalSpy asked(&mpris, &Mpris::pauseAsked);
+        QVERIFY(player.call("PlayPause").type() != QDBusMessage::ErrorMessage);
+        QTRY_COMPARE(asked.size(), 1);
+        QCOMPARE(asked.first().first().toBool(), false);
+
+        flow.play("jazz");
+        QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
+        QTRY_COMPARE(player.property("PlaybackStatus").toString(), QString("Playing"));
+        QVERIFY(player.property("CanGoNext").toBool());
+        mpris.setDuration(1000);
+        QDBusInterface properties(service, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties");
+        const QDBusReply<QDBusVariant> metadata = properties.call("Get", "org.mpris.MediaPlayer2.Player", "Metadata");
+        QVERIFY(metadata.isValid());
+        QVariantMap tune;
+        metadata.value().variant().value<QDBusArgument>() >> tune;
+        QCOMPARE(tune.value("xesam:title").toString(), flow.title());
+        QCOMPARE(tune.value("mpris:length").toLongLong(), 1000000);
+
+        // Next skips on; Pause asks the window to pause.
+        QTRY_VERIFY_WITH_TIMEOUT(server.count("POST /synth") >= 2 && !flow.composing(), 10000);
+        player.call("Next");
+        QTRY_COMPARE(flow.number(), 2);
+        player.call("Pause");
+        QTRY_COMPARE(asked.size(), 2);
+        QCOMPARE(asked.last().first().toBool(), true);
+        flow.stop();
     }
 
     void windowOffersToSetUpAModel() {

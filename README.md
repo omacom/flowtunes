@@ -21,6 +21,8 @@ Every tune has a name: a sung one is named for its hook, the line it sings most,
 | ? | All shortcuts |
 | Q | Quit |
 
+The media keys play, pause and skip too, as does anything else that speaks MPRIS, like `playerctl`, and the bar shows the tune that's playing. Previous starts the tune over.
+
 ## Command line
 
 ```sh
