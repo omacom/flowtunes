@@ -74,11 +74,11 @@ public slots:
     void Play() { m_mpris->play(); }
     void Pause() { m_mpris->pause(); }
     void PlayPause() { m_mpris->playPause(); }
-    void Stop() { m_mpris->pause(); }
+    void Stop() { m_mpris->stop(); }
     void Next() { m_mpris->next(); }
     void Previous() { m_mpris->previous(); }
     void Seek(qlonglong offset) { m_mpris->seek(offset); }
-    void SetPosition(const QDBusObjectPath &, qlonglong position) { m_mpris->seekTo(position); }
+    void SetPosition(const QDBusObjectPath &tune, qlonglong position) { m_mpris->seekTo(tune.path(), position); }
     void OpenUri(const QString &) {}
 
 signals:
@@ -112,18 +112,13 @@ void Mpris::setPaused(bool paused) {
     if (paused == m_paused)
         return;
     m_paused = paused;
+    if (!paused)
+        m_stopped = false;
     emit changed();
 }
 
 void Mpris::setPosition(qint64 position) {
-    if (position == m_position)
-        return;
-    // A tune that starts over, or jumps ahead further than it plays between
-    // two updates, was moved in: the bar is told, rather than left to guess.
-    const bool jumped = position < m_position || position - m_position > 2000;
     m_position = position;
-    if (jumped)
-        emit seeked(position * 1000);
 }
 
 void Mpris::setDuration(qint64 duration) {
@@ -135,13 +130,17 @@ void Mpris::setDuration(qint64 duration) {
 
 bool Mpris::hasTune() const { return !m_flow->track().isEmpty(); }
 
-QString Mpris::playbackStatus() const { return !hasTune() ? "Stopped" : m_paused ? "Paused" : "Playing"; }
+QString Mpris::playbackStatus() const { return !hasTune() || m_stopped ? "Stopped" : m_paused ? "Paused" : "Playing"; }
+
+QString Mpris::tuneId() const {
+    return hasTune() ? QString("/org/flowtunes/%1/%2").arg(m_flow->genre()).arg(m_flow->number()) : "/org/mpris/MediaPlayer2/TrackList/NoTrack";
+}
 
 QVariantMap Mpris::metadata() const {
     if (!hasTune())
-        return {{"mpris:trackid", QVariant::fromValue(QDBusObjectPath("/org/mpris/MediaPlayer2/TrackList/NoTrack"))}};
+        return {{"mpris:trackid", QVariant::fromValue(QDBusObjectPath(tuneId()))}};
     QVariantMap tune{
-        {"mpris:trackid", QVariant::fromValue(QDBusObjectPath(QString("/org/flowtunes/%1/%2").arg(m_flow->genre()).arg(m_flow->number())))},
+        {"mpris:trackid", QVariant::fromValue(QDBusObjectPath(tuneId()))},
         {"xesam:title", m_flow->title()},
         {"xesam:artist", QStringList{"Flowtunes"}},
         {"xesam:album", Genres::name(m_flow->genre())},
@@ -163,6 +162,20 @@ void Mpris::next() {
 void Mpris::seekTo(qint64 microseconds) {
     if (hasTune())
         emit seekAsked(qBound<qint64>(0, microseconds / 1000, m_duration));
+}
+
+void Mpris::seekTo(const QString &tune, qint64 microseconds) {
+    if (tune == tuneId())
+        seekTo(microseconds);
+}
+
+void Mpris::stop() {
+    if (!hasTune())
+        return;
+    emit pauseAsked(true);
+    seekTo(0);
+    m_stopped = true;
+    emit changed();
 }
 
 void Mpris::announce() {

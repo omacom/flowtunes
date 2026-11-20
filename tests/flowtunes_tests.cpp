@@ -1171,6 +1171,19 @@ private slots:
         mpris->previous();
         QTRY_VERIFY(mpris->position() < 200);
         QVERIFY(!seeked.isEmpty());
+        // A seek meant for another tune is left alone.
+        QSignalSpy seekAsked(mpris, &Mpris::seekAsked);
+        mpris->seekTo("/org/flowtunes/ambient/99", 500000);
+        QCOMPARE(seekAsked.size(), 0);
+        mpris->seekTo(mpris->tuneId(), 500000);
+        QCOMPARE(seekAsked.size(), 1);
+        // Stop goes back to the start and waits there for Play.
+        mpris->stop();
+        QCOMPARE(mpris->playbackStatus(), QString("Stopped"));
+        QVERIFY(window->property("paused").toBool());
+        QTRY_VERIFY(mpris->position() < 200);
+        mpris->play();
+        QCOMPARE(mpris->playbackStatus(), QString("Playing"));
         const int playingNumber = backend.flow()->number();
         mpris->next();
         QVERIFY(backend.flow()->number() > playingNumber || backend.flow()->track().isEmpty());

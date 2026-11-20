@@ -11,10 +11,14 @@ Item {
     readonly property int duration: player.duration
     signal ended()
     signal failed(string why)
+    // Moved in the tune by a seek, to here.
+    signal sought(int position)
 
     function seek(fraction) {
-        if (player.seekable)
-            player.position = player.duration * fraction
+        if (!player.seekable)
+            return
+        player.position = player.duration * fraction
+        root.sought(player.duration * fraction)
     }
     function finish() {
         if (player.mediaStatus === MediaPlayer.EndOfMedia)

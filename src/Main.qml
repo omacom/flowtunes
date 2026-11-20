@@ -93,15 +93,18 @@ ApplicationWindow {
     Component.onCompleted: begin()
     onUsableChanged: begin()
 
-    // The media keys, playerctl and the bar play along over MPRIS. Play with
-    // nothing playing plays the genre the keyboard is on.
+    // The media keys, playerctl and the bar play along over MPRIS. Play does
+    // as Space does: with nothing playing it plays the genre the keyboard is
+    // on, and after trouble it tries again.
     Binding { target: backend.mpris; property: "paused"; value: win.paused }
     Binding { target: backend.mpris; property: "position"; value: win.player ? win.player.position : 0 }
     Binding { target: backend.mpris; property: "duration"; value: win.player ? win.player.duration : 0 }
     Connections {
         target: backend.mpris
         function onPauseAsked(paused) {
-            if (win.flow.genre !== "")
+            if (!paused && win.flow.genre !== "" && (win.blocked || win.flow.error !== ""))
+                win.again()
+            else if (win.flow.genre !== "")
                 win.paused = paused
             else if (!paused && win.usable)
                 win.pick(win.chosen)
@@ -164,6 +167,7 @@ ApplicationWindow {
             source: win.flow.track
             paused: win.paused
             onEnded: win.flow.next()
+            onSought: position => backend.mpris.moved(position)
             onFailed: why => win.flow.playbackFailed(why)
         }
     }

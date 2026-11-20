@@ -37,15 +37,23 @@ public:
     QVariantMap metadata() const;
     bool hasTune() const;
 
-    // What it's asked. Previous plays the tune from its start: the flow only goes on.
+    // What it's asked. Previous plays the tune from its start: the flow only
+    // goes on. Stop pauses it at its start, which is where Play goes on from.
     void play() { emit pauseAsked(false); }
     void pause() { emit pauseAsked(true); }
     void playPause() { emit pauseAsked(hasTune() && !m_paused); }
+    void stop();
     void next();
     void previous() { seekTo(0); }
     // From where it is, or to a point, in microseconds.
     void seek(qint64 offset) { seekTo(m_position * 1000 + offset); }
     void seekTo(qint64 microseconds);
+    // Only a seek in the tune playing now, which this names, as the bus does.
+    void seekTo(const QString &tune, qint64 microseconds);
+    QString tuneId() const;
+
+    // The window's player moved in the tune, to here in milliseconds.
+    Q_INVOKABLE void moved(qint64 position) { emit seeked(position * 1000); }
 
 signals:
     void changed();
@@ -53,7 +61,7 @@ signals:
     void seekAsked(qint64 position);
     void raiseAsked();
     void quitAsked();
-    // A jump in the tune, in microseconds, which the bus is told of.
+    // A move in the tune, in microseconds, which the bus is told of.
     void seeked(qint64 position);
 
 private:
@@ -62,6 +70,7 @@ private:
 
     Flow *m_flow;
     bool m_paused = false;
+    bool m_stopped = false;
     qint64 m_position = 0;
     qint64 m_duration = 0;
     QVariantMap m_told;
