@@ -10,7 +10,7 @@
 
 // The music model omarchy-local-ai runs for Flowtunes. It reads the engine's
 // own status.json and list.json, follows their changes, and starts or sets up
-// the model through omarchy-agent-local.
+// the model through omarchy-models.
 class Models : public QObject {
     Q_OBJECT
     // noEngine, none, installable, installing, installed, blocked, starting, ready

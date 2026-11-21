@@ -52,5 +52,5 @@
   "Try again": "Yritä uudelleen",
   "Turn the lyrics on or off": "Ota sanoitukset käyttöön tai pois",
   "What do you want to flow to?": "Minkä tahdissa haluat päästä flow-tilaan?",
-  "omarchy-agent-local couldn't be run": "Komentoa omarchy-agent-local ei voitu suorittaa"
+  "omarchy-models couldn't be run": "Komentoa omarchy-models ei voitu suorittaa"
 }
