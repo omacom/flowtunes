@@ -52,5 +52,5 @@
   "Try again": "ลองอีกครั้ง",
   "Turn the lyrics on or off": "เปิดหรือปิดเนื้อร้อง",
   "What do you want to flow to?": "อยากไหลไปกับเพลงแนวไหน",
-  "omarchy-agent-local couldn't be run": "เรียกใช้ omarchy-agent-local ไม่ได้"
+  "omarchy-models couldn't be run": "เรียกใช้ omarchy-models ไม่ได้"
 }

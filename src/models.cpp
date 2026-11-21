@@ -24,7 +24,7 @@ Models::Models(const QString &stateDirectory, const QString &keyPath, const QStr
     : QObject(parent),
       m_directory(!stateDirectory.isEmpty() ? stateDirectory : QDir::homePath() + "/.local/state/omarchy/agent-local"),
       m_keyPath(!keyPath.isEmpty() ? keyPath : QDir::homePath() + "/.config/omarchy/agent-local/key"),
-      m_command(!command.isEmpty() ? command : QStandardPaths::findExecutable("omarchy-agent-local")) {
+      m_command(!command.isEmpty() ? command : QStandardPaths::findExecutable("omarchy-models")) {
     // The engine replaces its files whole, which drops a file watch, so the
     // watch is armed again after every change.
     m_debounce.setSingleShot(true);
@@ -51,7 +51,7 @@ Models::Models(const QString &stateDirectory, const QString &keyPath, const QStr
     connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart)
             return;
-        m_error = tr("omarchy-agent-local couldn't be run");
+        m_error = tr("omarchy-models couldn't be run");
         m_queue.clear();
         emit changed();
     });
@@ -198,7 +198,7 @@ void Models::run(const QList<QStringList> &commands) {
         return;
     m_error.clear();
     if (m_command.isEmpty()) {
-        m_error = tr("omarchy-agent-local couldn't be run");
+        m_error = tr("omarchy-models couldn't be run");
         emit changed();
         return;
     }

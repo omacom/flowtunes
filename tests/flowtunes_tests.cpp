@@ -16,6 +16,7 @@
 #include <QQuickWindow>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTcpServer>
@@ -268,13 +269,21 @@ QByteArray tone() {
     return ffmpeg.readAllStandardOutput();
 }
 
-// A stand-in for omarchy-agent-local that notes what it was asked.
+// A stand-in for omarchy-models that notes what it was asked.
 QString fakeEngine(const QString &folder) {
     const QString path = folder + "/engine";
     // The refresh every start asks for is beside the point of any test.
     write(path, "#!/bin/sh\n[ \"$1\" = refresh ] && exit 0\necho \"$@\" >> \"$(dirname \"$0\")/asked\"\n");
     QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
     return path;
+}
+
+// A stand-in installed as `name` in `folder`, noting its own name and what it was
+// asked. Only shell builtins, as its PATH holds nothing but the stand-ins.
+void fakeCommand(const QString &folder, const QString &name) {
+    const QString path = folder + "/" + name;
+    write(path, "#!/bin/sh\n[ \"$1\" = refresh ] && exit 0\necho \"${0##*/} $*\" >> \"${0%/*}/asked\"\n");
+    QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
 }
 
 } // namespace
@@ -374,6 +383,46 @@ private slots:
         engineWith(dir.path(), "active", "http://127.0.0.1:1");
         QTRY_COMPARE(models.state(), QString("ready"));
         QCOMPARE(models.origin(), QString("http://127.0.0.1:1"));
+    }
+
+    // Omarchy renamed omarchy-agent-local to omarchy-models before either reached
+    // a release, so the old name alone is no engine at all.
+    void modelsRunThroughOmarchyModels_data() {
+        QTest::addColumn<QStringList>("installed");
+        QTest::addColumn<QString>("ran");
+        QTest::newRow("omarchy-models") << QStringList{"omarchy-models"} << QString("omarchy-models");
+        QTest::newRow("both names") << QStringList{"omarchy-agent-local", "omarchy-models"} << QString("omarchy-models");
+        QTest::newRow("old name only") << QStringList{"omarchy-agent-local"} << QString();
+        QTest::newRow("neither") << QStringList{} << QString();
+    }
+
+    void modelsRunThroughOmarchyModels() {
+        QFETCH(QStringList, installed);
+        QFETCH(QString, ran);
+        QTemporaryDir dir;
+        engineWith(dir.path(), "inactive", "http://127.0.0.1:1");
+        const QString bin = dir.path() + "/bin";
+        QVERIFY(QDir().mkpath(bin));
+        for (const QString &name : installed)
+            fakeCommand(bin, name);
+        // The stand-ins alone, never the machine's own Omarchy.
+        const QByteArray path = qgetenv("PATH");
+        const auto restore = qScopeGuard([&] { qputenv("PATH", path); });
+        qputenv("PATH", QFile::encodeName(bin));
+
+        Models models(dir.path(), dir.path() + "/key", {});
+        QCOMPARE(models.state(), QString("installed"));
+        models.start();
+        QTRY_VERIFY(!models.working());
+        if (ran.isEmpty()) {
+            QCOMPARE(models.error(), QString("omarchy-models couldn't be run"));
+            QVERIFY(!QFile::exists(bin + "/asked"));
+            return;
+        }
+        QVERIFY2(models.error().isEmpty(), qPrintable(models.error()));
+        QFile asked(bin + "/asked");
+        QVERIFY(asked.open(QIODevice::ReadOnly));
+        QCOMPARE(asked.readAll(), (ran + " start ace-step\n").toUtf8());
     }
 
     void aBlockedModelIsStartedOnceItsWayIsCleared() {
