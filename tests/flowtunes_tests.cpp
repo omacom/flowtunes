@@ -297,8 +297,8 @@ private slots:
 
     void everyGenreAsksForItsOwnSoundWithoutAVoice() {
         const QStringList ids = Genres::ids();
-        QCOMPARE(ids.size(), 12);
-        QCOMPARE(QSet<QString>(ids.begin(), ids.end()).size(), 12);
+        QVERIFY(ids.contains("whisperlofi"));
+        QCOMPARE(QSet<QString>(ids.begin(), ids.end()).size(), ids.size());
         QRandomGenerator random(7);
         for (const Genre &genre : Genres::all()) {
             QSet<QString> captions;
@@ -1120,6 +1120,16 @@ private slots:
             QVERIFY2(!names.value(id).toString().isEmpty(), qPrintable(id));
         }
 
+        // The added row fits even at the smallest supported window size.
+        window->resize(660, 560);
+        auto *lastTile = item(picker, "genre-whisperlofi");
+        QVERIFY(lastTile);
+        QTRY_VERIFY(lastTile->mapToItem(window->contentItem(), QPointF(0, lastTile->height())).y()
+                    <= window->contentItem()->height());
+        QVERIFY(lastTile->mapToItem(window->contentItem(), QPointF(0, 0)).y() >= 0);
+        window->resize(960, 680);
+        QTRY_COMPARE(window->width(), 960);
+
         // The arrows move between them, and Enter plays the one they're on.
         QCOMPARE(window->property("chosen").toInt(), 0);
         QTest::keyClick(window, Qt::Key_Right);
@@ -1128,7 +1138,7 @@ private slots:
         QTest::keyClick(window, Qt::Key_Left);
         QTest::keyClick(window, Qt::Key_Up);
         QTest::keyClick(window, Qt::Key_Left);
-        QCOMPARE(window->property("chosen").toInt(), 11);
+        QCOMPARE(window->property("chosen").toInt(), backend.flow()->genres().size() - 1);
         QTest::keyClick(window, Qt::Key_Right);
         QTest::keyClick(window, Qt::Key_Right);
         QTest::keyClick(window, Qt::Key_Return);

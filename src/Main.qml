@@ -27,6 +27,7 @@ ApplicationWindow {
     // The genres by what they're called. Flow knows what each sounds like.
     readonly property var genreNames: ({
         "lofi": qsTr("Lo-fi"),
+        "whisperlofi": qsTr("Whisper Lo-fi"),
         "ambient": qsTr("Ambient"),
         "synthwave": qsTr("Synthwave"),
         "deephouse": qsTr("Deep House"),
@@ -352,7 +353,9 @@ ApplicationWindow {
                         readonly property bool flowing: win.flow.genre === modelData
                         objectName: "genre-" + modelData
                         Layout.preferredWidth: 196
-                        Layout.preferredHeight: 84
+                        Layout.preferredHeight: Math.min(84, Math.max(48,
+                            (win.height - 200 - (Math.ceil(win.flow.genres.length / tiles.columns) - 1) * tiles.rowSpacing)
+                                / Math.ceil(win.flow.genres.length / tiles.columns)))
                         radius: theme.radius
                         // Dark enough to read on, clear enough for the aurora to show through.
                         color: Qt.rgba(theme.background.r, theme.background.g, theme.background.b, current ? 0.9 : 0.66)

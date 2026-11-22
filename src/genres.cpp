@@ -78,6 +78,12 @@ const QList<Genre> &all() {
           "hopeful major key", "mysterious minor key", "wide open landscape mood"},
          {"Rising", "Silent", "Ancient", "Endless", "Fallen", "Hidden", "Eternal", "Distant", "Shattered", "Northern"},
          {"Kingdom", "Horizon", "Voyage", "Empire", "Frontier", "Citadel", "Ocean", "Legacy", "Expanse", "Dawn"}},
+        {"whisperlofi", "Whisper Lo-fi", "dark lo-fi hip hop, intimate and muffled like music playing inside a cardboard box, soft rolled-off treble, dry close-miked sound, muted dusty drums, deep gentle bass, slow sparse groove, subdued minor key",
+         "dark lo-fi song, intimate near-whispered vocals, muffled like music playing inside a cardboard box, soft rolled-off treble, dry close-miked sound, muted dusty drums, slow sparse groove",
+         {"hushed detuned electric piano", "soft tape hiss and muted vinyl crackle", "distant rain behind a closed window", "hollow boxy room resonance", "faint muffled guitar notes",
+          "subtle worn cassette wobble", "sparse brushed percussion", "shadowy minor chords", "deep midnight atmosphere"},
+         {"Hushed", "Hollow", "Midnight", "Faded", "Dim", "Quiet", "Hidden", "Distant", "Shadowed", "Still"},
+         {"Room", "Box", "Static", "Rain", "Cassette", "Window", "Hallway", "Corner", "Whisper", "Echo"}},
     };
     return genres;
 }
