@@ -42,6 +42,11 @@ int main(int argc, char *argv[]) {
             if (genre.id.compare(wanted, Qt::CaseInsensitive) == 0 || genre.name.compare(wanted, Qt::CaseInsensitive) == 0)
                 backend.setInitialGenre(genre.id);
 
+    // Quitting stops the music models nothing else uses. A window drawn
+    // offscreen leaves the user's models alone.
+    if (app.platformName() != "offscreen")
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] { backend.models()->release(); });
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);

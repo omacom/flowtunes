@@ -157,6 +157,9 @@ public:
     Q_INVOKABLE void install();
     // Stops the running model, to give its memory back.
     Q_INVOKABLE void stop();
+    // On quit: lets go of the model in use, then stops every music model
+    // running here that no other app holds, nor a tailnet machine uses.
+    void release();
     // Brings the model up to what the catalog has now.
     Q_INVOKABLE void update();
     // Removes the model's weights, to give its disk back.
@@ -178,6 +181,9 @@ private:
     void measure(bool always);
     void run(const QList<QStringList> &commands);
     void runNext();
+    // Holds the model in use through the engine for as long as the app runs,
+    // so another app quitting leaves it running.
+    void hold();
 
     QString m_directory;
     QString m_keyPath;
@@ -193,6 +199,8 @@ private:
     QProcess m_process;
     QProcess m_meter;
     QList<QStringList> m_queue;
+    QProcess m_hold;
+    QString m_held;
     // The models running here when memory was last measured.
     QStringList m_running;
 };

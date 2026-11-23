@@ -446,4 +446,34 @@ void Models::rediscover() {
         return;
     m_found = found;
     emit changed();
+    hold();
+}
+
+void Models::hold() {
+    // This machine's own, set up: a paired host's model is held there.
+    const bool own = QStringList{"installed", "blocked", "starting", "ready"}.contains(m_found.state) && m_found.host.isEmpty();
+    const QString id = own ? m_found.id : QString();
+    if (id == m_held || m_command.isEmpty())
+        return;
+    m_held = id;
+    // The engine holds it until its input closes, as when this app quits or dies.
+    m_hold.closeWriteChannel();
+    m_hold.waitForFinished(1000);
+    if (!id.isEmpty())
+        m_hold.start(m_command, {"hold", id});
+}
+
+void Models::release() {
+    m_hold.closeWriteChannel();
+    m_hold.waitForFinished(1000);
+    QStringList running;
+    const QJsonObject models = m_status.value("models").toObject();
+    for (auto it = models.begin(); it != models.end(); ++it) {
+        const QJsonObject row = it.value().toObject();
+        const QString unit = row.value("unit").toString();
+        if (isMusic(row) && !row.value("paired").toBool() && (unit == "active" || unit == "activating"))
+            running << it.key();
+    }
+    if (!running.isEmpty() && !m_command.isEmpty())
+        QProcess::startDetached(m_command, QStringList{"stop", "--unless-used"} + running);
 }
