@@ -1532,6 +1532,139 @@ private slots:
         QCoreApplication::removeTranslator(&translator);
     }
 
+    void logoIsTheVendorsMarkFromOmarchy() {
+        QTemporaryDir dir;
+        const QString assets = dir.path() + "/shell/plugins/agents/assets/";
+        QDir().mkpath(assets);
+        for (const char *name : {"ace-step.svg", "ace-step-light.svg", "stability.svg", "local.svg"})
+            write(assets + name, "<svg/>");
+        const QByteArray saved = qgetenv("OMARCHY_PATH");
+        const auto restore = qScopeGuard([&] {
+            if (saved.isEmpty())
+                qunsetenv("OMARCHY_PATH");
+            else
+                qputenv("OMARCHY_PATH", saved);
+        });
+        qputenv("OMARCHY_PATH", dir.path().toUtf8());
+        QCOMPARE(Models::logo("ace-step", true), QUrl::fromLocalFile(assets + "ace-step-light.svg").toString());
+        QCOMPARE(Models::logo("stability", true), QUrl::fromLocalFile(assets + "stability.svg").toString());
+        QCOMPARE(Models::logo("unknown", false), QUrl::fromLocalFile(assets + "local.svg").toString());
+        QCOMPARE(Models::logo("../stability", false), QUrl::fromLocalFile(assets + "local.svg").toString());
+        qunsetenv("OMARCHY_PATH");
+        QCOMPARE(Models::logo("stability", false), QString());
+    }
+
+    void anInstrumentalMusicModelRendersDirectlyAndHidesLyrics() {
+        QTemporaryDir dir;
+        FakeServer server;
+        server.sound = m_tone;
+        const QString state = dir.path() + "/engine-state";
+        QDir().mkpath(state);
+        write(state + "/status.json", QJsonDocument(QJsonObject{{"models", QJsonObject{{"sa3", QJsonObject{
+            {"kind", "music"}, {"vocals", false}, {"vendor", "stability"}, {"name", "Stable Audio 3 Medium"},
+            {"unit", "active"}, {"endpoint", server.origin() + "/v1"}}}}}}).toJson());
+        write(state + "/list.json", R"([{"id":"sa3","kind":"music","vocals":false,"vendor":"stability","name":"Stable Audio 3 Medium","available":true,"installed":true,"download_gib":2.56,"memory_gib":4}])");
+        write(state + "/key", "secret\n");
+
+        Models models(state, state + "/key", fakeEngine(dir.path()));
+        QCOMPARE(models.vendor(), QString("stability"));
+        QVERIFY(!models.vocals());
+
+        // Even with lyrics saved on from a vocal model, an instrumental model renders straight via /synth
+        // without calling /lm and without overwriting the user's saved lyrics preference.
+        QSettings().setValue("lyrics", true);
+        Flow flow(&models, dir.path() + "/music");
+        QVERIFY(flow.lyrics());
+        flow.play("synthwave");
+        QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
+        QCOMPARE(server.count("POST /lm"), 0);
+        QVERIFY(server.count("POST /synth") >= 1);
+        const QJsonObject body = server.bodies[server.requests.indexOf("POST /synth")];
+        QVERIFY(body.value("caption").toString().endsWith(", instrumental"));
+        QCOMPARE(body.value("duration").toInt(), Flow::trackSeconds);
+        QVERIFY(!Flow::sungOf(flow.track().fileName()));
+        QVERIFY(QSettings().value("lyrics").toBool());
+        flow.stop();
+
+        // The window hides the lyrics switch and ignores L for an instrumental-only model.
+        Translator translator(dir.path() + "/language");
+        QCoreApplication::installTranslator(&translator);
+        Theme theme(dir.path());
+        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music2", {}});
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &errors) {
+            for (const auto &error : errors)
+                warnings << error.toString();
+        });
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.load(QUrl("qrc:/Main.qml"));
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY(item(window->contentItem(), "playing")->isVisible());
+        QVERIFY(!item(window->contentItem(), "lyrics")->isVisible());
+        const bool before = backend.flow()->lyrics();
+        QTest::keyClick(window, Qt::Key_L);
+        QCOMPARE(backend.flow()->lyrics(), before);
+        window->close();
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        QCoreApplication::removeTranslator(&translator);
+    }
+
+    void windowOffersMultipleMusicModelsOnFirstRun() {
+        QTemporaryDir dir;
+        Translator translator(dir.path() + "/language");
+        QCoreApplication::installTranslator(&translator);
+        Theme theme(dir.path());
+        const QString state = dir.path() + "/engine-state";
+        QDir().mkpath(state);
+        write(state + "/status.json", "{\"models\":{}}");
+        write(state + "/list.json", R"([
+            {"id":"ace-step","kind":"music","vocals":true,"vendor":"ace-step","name":"ACE-Step 1.5 Turbo","available":true,"best":true,"download_gib":7.57,"memory_gib":8},
+            {"id":"sa3-medium","kind":"music","vocals":false,"vendor":"stability","name":"Stable Audio 3 Medium","available":true,"download_gib":2.56,"memory_gib":4}
+        ])");
+        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music", {}});
+        QCOMPARE(backend.models()->offers().size(), 2);
+        QCOMPARE(backend.models()->offers().first().toMap().value("id").toString(), QString("ace-step"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &errors) {
+            for (const auto &error : errors)
+                warnings << error.toString();
+        });
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.load(QUrl("qrc:/Main.qml"));
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+
+        QVERIFY(item(window->contentItem(), "setup")->isVisible());
+        QVERIFY(item(window->contentItem(), "offer-ace-step")->isVisible());
+        QVERIFY(item(window->contentItem(), "offer-sa3-medium")->isVisible());
+        QVERIFY(!item(window->contentItem(), "setUp")->isVisible());
+
+        auto *sa3Button = item(window->contentItem(), "setUp-sa3-medium");
+        QVERIFY(sa3Button && sa3Button->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, {}, sa3Button->mapToScene(QPointF(sa3Button->width() / 2, sa3Button->height() / 2)).toPoint());
+        QTRY_VERIFY(QFile::exists(dir.path() + "/asked"));
+        QFile asked(dir.path() + "/asked");
+        QVERIFY(asked.open(QIODevice::ReadOnly));
+        QCOMPARE(asked.readAll(), QByteArray("use sa3-medium --detach\n"));
+        QCOMPARE(QSettings().value("model").toString(), QString("sa3-medium"));
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        QCoreApplication::removeTranslator(&translator);
+    }
+
 private:
     QByteArray m_tone;
 };
