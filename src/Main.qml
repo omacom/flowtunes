@@ -128,7 +128,7 @@ ApplicationWindow {
         pick(index)
     }
     Component.onCompleted: begin()
-    onUsableChanged: begin()
+    onUsableChanged: Qt.callLater(begin)
 
     // The media keys, playerctl and the bar play along over MPRIS. Play does
     // as Space does: with nothing playing it plays the genre the keyboard is
