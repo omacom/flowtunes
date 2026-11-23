@@ -1570,19 +1570,28 @@ private slots:
         QCOMPARE(models.vendor(), QString("stability"));
         QVERIFY(!models.vocals());
 
-        // Even with lyrics saved on from a vocal model, an instrumental model renders straight via /synth
-        // without calling /lm and without overwriting the user's saved lyrics preference.
+        // Even with lyrics saved on from a vocal model, an instrumental model plays only saved
+        // instrumental tracks (skipping sung ones), renders new ones straight via /synth without
+        // calling /lm, and never overwrites the user's saved lyrics preference.
         QSettings().setValue("lyrics", true);
         Flow flow(&models, dir.path() + "/music");
         QVERIFY(flow.lyrics());
+        QVERIFY(QDir().mkpath(flow.folder("synthwave")));
+        QVERIFY(write(flow.folder("synthwave") + "/20260101-100000-110bpm.mp3", m_tone));
+        QVERIFY(write(flow.folder("synthwave") + "/20260101-100500-110bpm-instrumental.mp3", m_tone));
         flow.play("synthwave");
         QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
+        QCOMPARE(QFileInfo(flow.track().toLocalFile()).fileName(), QString("20260101-100500-110bpm-instrumental.mp3"));
+        QTRY_VERIFY_WITH_TIMEOUT(server.count("POST /synth") >= 1 && !flow.composing(), 10000);
         QCOMPARE(server.count("POST /lm"), 0);
-        QVERIFY(server.count("POST /synth") >= 1);
         const QJsonObject body = server.bodies[server.requests.indexOf("POST /synth")];
         QVERIFY(body.value("caption").toString().endsWith(", instrumental"));
         QCOMPARE(body.value("duration").toInt(), Flow::trackSeconds);
+        // Skipping past the saved instrumental tune plays the newly generated instrumental tune, never the sung one.
+        flow.next();
+        QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
         QVERIFY(!Flow::sungOf(flow.track().fileName()));
+        QVERIFY(QFileInfo(flow.track().toLocalFile()).fileName() != QString("20260101-100000-110bpm.mp3"));
         QVERIFY(QSettings().value("lyrics").toBool());
         flow.stop();
 
