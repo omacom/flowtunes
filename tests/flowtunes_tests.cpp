@@ -272,8 +272,11 @@ QByteArray tone() {
 QString fakeEngine(const QString &folder) {
     const QString path = folder + "/engine";
     // The refresh every start asks for, and what the running models hold,
-    // are beside the point of any test that doesn't say otherwise.
+    // are beside the point of any test that doesn't say otherwise. The hold
+    // on the model in use is noted on its own, and lasts until its input
+    // closes, as the engine's does.
     write(path, "#!/bin/sh\n[ \"$1\" = refresh ] && exit 0\n[ \"$1\" = memory ] && { cat \"$(dirname \"$0\")/held\" 2>/dev/null || echo {}; exit 0; }\n"
+                "[ \"$1\" = hold ] && { echo \"$@\" >> \"$(dirname \"$0\")/holding\"; cat > /dev/null; echo released >> \"$(dirname \"$0\")/holding\"; exit 0; }\n"
                 "echo \"$@\" >> \"$(dirname \"$0\")/asked\"\n");
     QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
     return path;
@@ -439,6 +442,23 @@ private slots:
         engineWith(dir.path(), "active", "http://127.0.0.1:1");
         QTRY_COMPARE(models.state(), QString("ready"));
         QCOMPARE(models.origin(), QString("http://127.0.0.1:1"));
+    }
+
+    void holdsTheModelInUseAndStopsTheMusicModelsOnQuit() {
+        QTemporaryDir dir;
+        engineWith(dir.path(), "active", "http://127.0.0.1:1");
+        Models models(dir.path(), dir.path() + "/key", fakeEngine(dir.path()));
+        const auto read = [&](const QString &name) {
+            QFile file(dir.path() + "/" + name);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        QTRY_COMPARE(read("holding"), QByteArray("hold ace-step\n"));
+        // Held for as long as the app runs, and let go before anything is stopped.
+        QTest::qWait(200);
+        QCOMPARE(read("holding"), QByteArray("hold ace-step\n"));
+        models.release();
+        QCOMPARE(read("holding"), QByteArray("hold ace-step\nreleased\n"));
+        QTRY_COMPARE(read("asked"), QByteArray("stop --unless-used ace-step\n"));
     }
 
     void aBlockedModelIsStartedOnceItsWayIsCleared() {
