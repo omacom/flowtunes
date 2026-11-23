@@ -128,7 +128,7 @@ ApplicationWindow {
         pick(index)
     }
     Component.onCompleted: begin()
-    onUsableChanged: begin()
+    onUsableChanged: Qt.callLater(begin)
 
     // The media keys, playerctl and the bar play along over MPRIS. Play does
     // as Space does: with nothing playing it plays the genre the keyboard is
@@ -191,7 +191,7 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; enabled: win.choosing; onActivated: win.move(tiles.columns) }
     Shortcut { sequence: "N"; enabled: !win.choosing; onActivated: win.flow.next() }
     Shortcut { sequence: "G"; enabled: !win.choosing; onActivated: win.picking = true }
-    Shortcut { sequence: "L"; enabled: !win.choosing; onActivated: win.flow.lyrics = !win.flow.lyrics }
+    Shortcut { sequence: "L"; enabled: !win.choosing && win.models.vocals; onActivated: win.flow.lyrics = !win.flow.lyrics }
     // The lyrics are sung in the language the desktop speaks.
     Binding { target: win.flow; property: "language"; value: translator.language }
     Shortcut {
@@ -295,10 +295,22 @@ ApplicationWindow {
         ColumnLayout {
             objectName: "setup"
             visible: !win.usable
+            readonly property bool choosingModel: win.models.state === "installable" && win.models.offers.length > 1
+            readonly property string vendorLogo: win.models.logo(win.models.vendor, theme.light)
             anchors.centerIn: parent
-            width: Math.min(parent.width - 80, 520)
+            width: choosingModel ? Math.min(parent.width - 64, 680) : Math.min(parent.width - 80, 520)
             spacing: 16
 
+            Image {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                sourceSize: Qt.size(64, 64)
+                fillMode: Image.PreserveAspectFit
+                visible: !parent.choosingModel && parent.vendorLogo !== ""
+                         && ["installable", "installing", "removing"].includes(win.models.state)
+                source: parent.vendorLogo
+            }
             Label {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
@@ -306,6 +318,7 @@ ApplicationWindow {
                 font.pixelSize: 26
                 font.weight: Font.DemiBold
                 text: win.models.state === "noEngine" ? qsTr("Flowtunes needs Omarchy's local models")
+                    : parent.choosingModel ? qsTr("Choose a music model")
                     : win.models.state === "installable" ? qsTr("Flowtunes plays with %1").arg(win.models.name)
                     : win.models.state === "installing" ? qsTr("Setting up %1…").arg(win.models.name)
                     : win.models.state === "removing" ? qsTr("Removing %1…").arg(win.models.name)
@@ -318,6 +331,7 @@ ApplicationWindow {
                 font.pixelSize: 15
                 color: win.muted
                 text: win.models.state === "noEngine" ? qsTr("Flowtunes makes its music with Omarchy's local AI models, which aren't installed.")
+                    : parent.choosingModel ? qsTr("Each runs right here on this machine. You can switch later.")
                     : win.models.state === "installable" && win.models.diskGib > 0 && win.models.needGib > 0
                         ? qsTr("The model makes every tune on this machine. It's a %1 GB download, once, and it needs %2 GB of memory while it plays.")
                             .arg(win.gb(win.models.diskGib, translator.language)).arg(win.gb(win.models.needGib, translator.language))
@@ -325,6 +339,91 @@ ApplicationWindow {
                     : win.models.state === "installing" ? qsTr("The music starts as soon as the model is here.")
                     : win.models.state === "removing" ? qsTr("Your tunes stay in your music folder.")
                     : qsTr("None of Omarchy's music models runs on this hardware. New ones arrive with updates.")
+            }
+            GridLayout {
+                id: offerCards
+                visible: parent.choosingModel
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+                columns: win.width < 700 ? 1 : Math.min(win.models.offers.length, 2)
+                columnSpacing: 16
+                rowSpacing: 14
+
+                Repeater {
+                    model: win.models.offers
+                    delegate: Rectangle {
+                        id: offerCard
+                        required property var modelData
+                        readonly property string logo: win.models.logo(modelData.vendor || "", theme.light)
+                        objectName: "offer-" + modelData.id
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        implicitHeight: offerContent.implicitHeight + 36
+                        radius: theme.radius
+                        color: Qt.rgba(theme.background.r, theme.background.g, theme.background.b, 0.82)
+                        border.width: 1
+                        border.color: modelData.best ? theme.accent : win.line
+
+                        ColumnLayout {
+                            id: offerContent
+                            anchors.fill: parent
+                            anchors.margins: 18
+                            spacing: 6
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+                                Image {
+                                    Layout.preferredWidth: 22
+                                    Layout.preferredHeight: 22
+                                    sourceSize: Qt.size(44, 44)
+                                    fillMode: Image.PreserveAspectFit
+                                    visible: offerCard.logo !== ""
+                                    source: offerCard.logo
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignLeft
+                                    elide: Text.ElideRight
+                                    font.pixelSize: 17
+                                    font.weight: Font.DemiBold
+                                    text: offerCard.modelData.name
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 13
+                                color: win.muted
+                                text: offerCard.modelData.vocals ? qsTr("Songs with vocals or instrumental") : qsTr("Instrumental music")
+                            }
+                            Item { Layout.fillHeight: true; Layout.minimumHeight: 8 }
+                            Label {
+                                Layout.fillWidth: true
+                                font.pixelSize: 12
+                                color: win.muted
+                                visible: text !== ""
+                                text: {
+                                    const parts = []
+                                    if (offerCard.modelData.downloadGib > 0)
+                                        parts.push(qsTr("%1 GB download").arg(win.gb(offerCard.modelData.downloadGib, translator.language)))
+                                    if (offerCard.modelData.memoryGib > 0)
+                                        parts.push(qsTr("%1 GB memory").arg(win.gb(offerCard.modelData.memoryGib, translator.language)))
+                                    return parts.join("  ·  ")
+                                }
+                            }
+                            FlowButton {
+                                objectName: "setUp-" + offerCard.modelData.id
+                                Layout.fillWidth: true
+                                Layout.topMargin: 6
+                                enabled: !win.models.working
+                                highlighted: offerCard.modelData.best || win.models.id === offerCard.modelData.id
+                                text: qsTr("Set it up")
+                                onClicked: win.models.install(offerCard.modelData.id)
+                            }
+                        }
+                    }
+                }
             }
             ProgressBar {
                 Layout.fillWidth: true
@@ -353,7 +452,7 @@ ApplicationWindow {
             FlowButton {
                 objectName: "setUp"
                 Layout.alignment: Qt.AlignHCenter
-                visible: win.models.state === "installable"
+                visible: win.models.state === "installable" && !parent.choosingModel
                 enabled: !win.models.working
                 highlighted: true
                 text: qsTr("Set it up")
@@ -465,6 +564,7 @@ ApplicationWindow {
             Item {
                 id: lyricsSwitch
                 objectName: "lyrics"
+                visible: win.models.vocals
                 readonly property bool checked: win.flow.lyrics
                 readonly property color ink: checked ? theme.accent : win.muted
                 Layout.alignment: Qt.AlignHCenter
@@ -643,27 +743,44 @@ ApplicationWindow {
         }
 
         // The music model, and what it's doing: opens its sheet.
-        Label {
+        Row {
             id: modelChip
             objectName: "modelChip"
+            readonly property string logo: win.models.logo(win.models.vendor, theme.light)
+            readonly property alias text: modelChipLabel.text
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
             visible: win.usable
-            font.pixelSize: 12
-            color: chipHover.hovered ? theme.foreground : win.muted
-            text: {
-                const parts = [win.models.name]
-                const state = win.models.state
-                if (state === "ready" && win.models.heldGib > 0)
-                    parts.push(qsTr("using %1 GB").arg(win.gb(win.models.heldGib, translator.language)))
-                else if (state === "starting")
-                    parts.push(qsTr("loading…"))
-                else if (state === "installed" || state === "blocked")
-                    parts.push(qsTr("stopped"))
-                if (win.models.updatable)
-                    parts.push(qsTr("update ready"))
-                return parts.join("  ·  ")
+            spacing: 6
+
+            Image {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 14
+                height: 14
+                sourceSize: Qt.size(28, 28)
+                fillMode: Image.PreserveAspectFit
+                visible: modelChip.logo !== ""
+                source: modelChip.logo
+            }
+            Label {
+                id: modelChipLabel
+                anchors.verticalCenter: parent.verticalCenter
+                font.pixelSize: 12
+                color: chipHover.hovered ? theme.foreground : win.muted
+                text: {
+                    const parts = [win.models.name]
+                    const state = win.models.state
+                    if (state === "ready" && win.models.heldGib > 0)
+                        parts.push(qsTr("using %1 GB").arg(win.gb(win.models.heldGib, translator.language)))
+                    else if (state === "starting")
+                        parts.push(qsTr("loading…"))
+                    else if (state === "installed" || state === "blocked")
+                        parts.push(qsTr("stopped"))
+                    if (win.models.updatable)
+                        parts.push(qsTr("update ready"))
+                    return parts.join("  ·  ")
+                }
             }
             HoverHandler { id: chipHover; cursorShape: Qt.PointingHandCursor }
             TapHandler { onTapped: sheet.open() }
@@ -695,16 +812,16 @@ ApplicationWindow {
 
             Repeater {
                 model: [
-                    { keys: "← ↑ ↓ →", action: qsTr("Move between the genres") },
-                    { keys: "Enter", action: qsTr("Play the genre") },
-                    { keys: "Space", action: qsTr("Pause or play") },
-                    { keys: "N", action: qsTr("Skip to the next tune") },
-                    { keys: "G", action: qsTr("Pick another genre") },
-                    { keys: "L", action: qsTr("Turn the lyrics on or off") },
-                    { keys: "M", action: qsTr("Show the music model") },
-                    { keys: "?", action: qsTr("Show or hide the shortcuts") },
-                    { keys: "Q", action: qsTr("Quit") }
-                ]
+                    { keys: "← ↑ ↓ →", action: qsTr("Move between the genres"), shown: true },
+                    { keys: "Enter", action: qsTr("Play the genre"), shown: true },
+                    { keys: "Space", action: qsTr("Pause or play"), shown: true },
+                    { keys: "N", action: qsTr("Skip to the next tune"), shown: true },
+                    { keys: "G", action: qsTr("Pick another genre"), shown: true },
+                    { keys: "L", action: qsTr("Turn the lyrics on or off"), shown: win.models.vocals },
+                    { keys: "M", action: qsTr("Show the music model"), shown: true },
+                    { keys: "?", action: qsTr("Show or hide the shortcuts"), shown: true },
+                    { keys: "Q", action: qsTr("Quit"), shown: true }
+                ].filter(row => row.shown)
                 delegate: RowLayout {
                     required property var modelData
                     spacing: 24
@@ -780,14 +897,28 @@ ApplicationWindow {
             LayoutMirroring.enabled: win.rightToLeft
             LayoutMirroring.childrenInherit: true
 
-            Label {
+            RowLayout {
                 Layout.fillWidth: true
-                // A Latin name keeps to the reading side in a right-to-left language too.
-                horizontalAlignment: Text.AlignLeft
-                wrapMode: Text.WordWrap
-                font.pixelSize: 22
-                font.weight: Font.DemiBold
-                text: win.models.name
+                spacing: 10
+                readonly property string logo: win.models.logo(win.models.vendor, theme.light)
+
+                Image {
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    sourceSize: Qt.size(48, 48)
+                    fillMode: Image.PreserveAspectFit
+                    visible: parent.logo !== ""
+                    source: parent.logo
+                }
+                Label {
+                    Layout.fillWidth: true
+                    // A Latin name keeps to the reading side in a right-to-left language too.
+                    horizontalAlignment: Text.AlignLeft
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: 22
+                    font.weight: Font.DemiBold
+                    text: win.models.name
+                }
             }
             Label {
                 objectName: "sheetState"
@@ -936,8 +1067,17 @@ ApplicationWindow {
                 model: win.models.others
                 delegate: RowLayout {
                     required property var modelData
+                    readonly property string logo: win.models.logo(modelData.vendor || "", theme.light)
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 10
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        fillMode: Image.PreserveAspectFit
+                        visible: parent.logo !== ""
+                        source: parent.logo
+                    }
                     Label {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignLeft
@@ -947,8 +1087,16 @@ ApplicationWindow {
                     Label {
                         color: win.muted
                         font.pixelSize: 12
-                        text: modelData.installed ? qsTr("Set up")
-                            : modelData.downloadGib > 0 ? qsTr("%1 GB download").arg(win.gb(modelData.downloadGib, translator.language)) : ""
+                        text: {
+                            const parts = []
+                            if (!modelData.vocals)
+                                parts.push(qsTr("Instrumental"))
+                            if (modelData.installed)
+                                parts.push(qsTr("Set up"))
+                            else if (modelData.downloadGib > 0)
+                                parts.push(qsTr("%1 GB download").arg(win.gb(modelData.downloadGib, translator.language)))
+                            return parts.join("  ·  ")
+                        }
                     }
                     FlowButton {
                         enabled: !win.models.working

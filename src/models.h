@@ -30,6 +30,9 @@ class Models : public QObject {
     Q_PROPERTY(QString state READ state NOTIFY changed)
     Q_PROPERTY(QString id READ id NOTIFY changed)
     Q_PROPERTY(QString name READ name NOTIFY changed)
+    Q_PROPERTY(QString vendor READ vendor NOTIFY changed)
+    // Whether the music model in use sings with lyrics; false for instrumental-only models.
+    Q_PROPERTY(bool vocals READ vocals NOTIFY changed)
     // The machine a paired model runs on; empty for this one's own.
     Q_PROPERTY(QString host READ host NOTIFY changed)
     // Why no music model runs here, or why its setup failed.
@@ -64,8 +67,10 @@ class Models : public QObject {
     Q_PROPERTY(bool updatable READ updatable NOTIFY changed)
     Q_PROPERTY(qint64 updateBytes READ updateBytes NOTIFY changed)
     Q_PROPERTY(bool updating READ updating NOTIFY changed)
-    // The other music models that run here, each {id, name, installed, downloadGib, memoryGib}.
+    // The other music models that run here, each {id, name, vendor, vocals, installed, downloadGib, memoryGib}.
     Q_PROPERTY(QVariantList others READ others NOTIFY changed)
+    // Every music model available on this machine, best first, for choosing one on first run.
+    Q_PROPERTY(QVariantList offers READ offers NOTIFY changed)
 
 public:
     using Memory = ModelMemory;
@@ -74,6 +79,8 @@ public:
         QString state;
         QString id;
         QString name;
+        QString vendor;
+        bool vocals = true;
         QString host;
         QString endpoint;
         QString reason;
@@ -95,11 +102,12 @@ public:
         qint64 updateBytes = 0;
         bool updating = false;
         QVariantList others;
+        QVariantList offers;
 
         auto tied() const {
-            return std::tie(state, id, name, host, endpoint, reason, needGib, freeGib, totalGib, diskGib, heldGib, holders,
+            return std::tie(state, id, name, vendor, vocals, host, endpoint, reason, needGib, freeGib, totalGib, diskGib, heldGib, holders,
                             blockers, blockerIds, phase, doneBytes, totalBytes, rateBytes, sinceMs, loadSeconds, updatable,
-                            updateBytes, updating, others);
+                            updateBytes, updating, others, offers);
         }
         bool operator==(const Discovery &other) const { return tied() == other.tied(); }
     };
@@ -121,6 +129,8 @@ public:
     QString state() const { return m_found.state; }
     QString id() const { return m_found.id; }
     QString name() const { return m_found.name; }
+    QString vendor() const { return m_found.vendor; }
+    bool vocals() const { return m_found.vocals; }
     QString host() const { return m_found.host; }
     QString reason() const { return m_found.reason; }
     double needGib() const { return m_found.needGib; }
@@ -142,6 +152,11 @@ public:
     qint64 updateBytes() const { return m_found.updateBytes; }
     bool updating() const { return m_found.updating; }
     QVariantList others() const { return m_found.others; }
+    QVariantList offers() const { return m_found.offers; }
+
+    // The vendor's mark as Omarchy's agents panel draws it: dark version on a
+    // light theme where there is one, local model's mark when unknown, empty without Omarchy.
+    Q_INVOKABLE static QString logo(const QString &vendor, bool light);
 
     // The ready model's server, as scheme://host:port, and the engine's key.
     QString origin() const;
@@ -153,8 +168,8 @@ public:
     Q_INVOKABLE void start();
     // Stops the models in a blocked model's way, then starts it.
     Q_INVOKABLE void makeRoom();
-    // Sets up the one on offer, or tries again a setup that failed.
-    Q_INVOKABLE void install();
+    // Sets up the chosen music model (or the default offer when empty), or tries again one that failed.
+    Q_INVOKABLE void install(const QString &id = {});
     // Stops the running model, to give its memory back.
     Q_INVOKABLE void stop();
     // On quit: lets go of the model in use, then stops every music model

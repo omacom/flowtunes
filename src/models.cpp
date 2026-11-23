@@ -147,14 +147,47 @@ Models::Discovery Models::discover(const QJsonObject &status, const QJsonArray &
     };
     const auto other = [](const QJsonObject &row) {
         return QVariantMap{{"id", row.value("id").toString()}, {"name", row.value("name").toString(row.value("id").toString())},
+                           {"vendor", row.value("vendor").toString()}, {"vocals", row.value("vocals").toBool(true)},
                            {"installed", row.value("installed").toBool()}, {"downloadGib", row.value("download_gib").toDouble()},
-                           {"memoryGib", row.value("memory_gib").toDouble()}};
+                           {"memoryGib", row.value("memory_gib").toDouble()}, {"best", row.value("best").toBool()}};
     };
+    QList<QJsonObject> available;
+    for (const QJsonValue &value : list) {
+        const QJsonObject row = value.toObject();
+        if (isMusic(row) && row.value("available").toBool())
+            available << row;
+    }
+    std::stable_sort(available.begin(), available.end(), [&](const QJsonObject &a, const QJsonObject &b) {
+        const bool aBest = a.value("best").toBool(), bBest = b.value("best").toBool();
+        if (aBest != bBest)
+            return aBest;
+        return a.value("name").toString(a.value("id").toString()) < b.value("name").toString(b.value("id").toString());
+    });
+    for (const QJsonObject &row : available)
+        found.offers << other(row);
+
     const auto offerOthers = [&] {
+        QSet<QString> seen{found.id};
         for (const QJsonValue &value : list) {
             const QJsonObject row = value.toObject();
-            if (isMusic(row) && row.value("available").toBool() && row.value("id").toString() != found.id)
+            const QString id = row.value("id").toString();
+            if (isMusic(row) && row.value("available").toBool() && !seen.contains(id)) {
+                seen.insert(id);
                 found.others << other(row);
+            }
+        }
+        // Installed or paired host music models not present in list.json stay switchable too.
+        for (const QJsonObject &row : music) {
+            const QString id = row.value("id").toString();
+            if (seen.contains(id) || row.value("unit").toString() == "installing")
+                continue;
+            seen.insert(id);
+            const QJsonObject card = listed.value(id);
+            found.others << QVariantMap{{"id", id}, {"name", row.value("name").toString(id)},
+                                        {"vendor", row.value("vendor").toString(card.value("vendor").toString())},
+                                        {"vocals", row.contains("vocals") ? row.value("vocals").toBool(true) : card.value("vocals").toBool(true)},
+                                        {"installed", true}, {"downloadGib", card.value("download_gib").toDouble()},
+                                        {"memoryGib", card.value("memory_gib").toDouble()}, {"best", card.value("best").toBool()}};
         }
     };
 
@@ -184,6 +217,8 @@ Models::Discovery Models::discover(const QJsonObject &status, const QJsonArray &
         found.state = "installable";
         found.id = offer.value("id").toString();
         found.name = offer.value("name").toString(found.id);
+        found.vendor = offer.value("vendor").toString();
+        found.vocals = offer.value("vocals").toBool(true);
         found.reason.clear();
         found.needGib = offer.value("memory_gib").toDouble();
         found.diskGib = offer.value("download_gib").toDouble();
@@ -195,6 +230,10 @@ Models::Discovery Models::discover(const QJsonObject &status, const QJsonArray &
     const QJsonObject card = listed.value(row.value("id").toString());
     found.id = row.value("id").toString();
     found.name = row.value("name").toString(found.id);
+    found.vendor = row.value("vendor").toString();
+    if (found.vendor.isEmpty())
+        found.vendor = card.value("vendor").toString();
+    found.vocals = row.contains("vocals") ? row.value("vocals").toBool(true) : card.value("vocals").toBool(true);
     found.host = row.value("host").toString();
     found.endpoint = row.value("endpoint").toString();
     found.needGib = card.value("memory_gib").toDouble();
@@ -324,11 +363,34 @@ void Models::makeRoom() {
     run(commands);
 }
 
-void Models::install() {
+QString Models::logo(const QString &vendor, bool light) {
+    const QString omarchy = qEnvironmentVariable("OMARCHY_PATH");
+    if (omarchy.isEmpty())
+        return {};
+    const QString assets = omarchy + "/shell/plugins/agents/assets/";
+    static const QRegularExpression slug("^[a-z0-9-]+$");
+    const QString id = slug.match(vendor).hasMatch() && QFileInfo::exists(assets + vendor + ".svg") ? vendor : "local";
+    const QString path = light && QFileInfo::exists(assets + id + "-light.svg") ? assets + id + "-light.svg" : assets + id + ".svg";
+    return QFileInfo::exists(path) ? QUrl::fromLocalFile(path).toString() : QString();
+}
+
+void Models::install(const QString &id) {
     // A setup that failed is tried again the same way: the engine replaces
     // the failed record rather than inheriting its error.
-    if (m_found.state == "installable")
-        run({{"use", m_found.id, "--detach"}});
+    if (m_found.state != "installable")
+        return;
+    const QString target = id.isEmpty() ? m_found.id : id;
+    bool known = target == m_found.id;
+    for (const QVariant &offer : m_found.offers)
+        if (offer.toMap().value("id").toString() == target)
+            known = true;
+    if (!known || target.isEmpty())
+        return;
+    if (target != m_found.id) {
+        QSettings().setValue("model", target);
+        rediscover();
+    }
+    run({{"use", target, "--detach"}});
 }
 
 void Models::stop() {
