@@ -19,7 +19,6 @@ int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("flowtunes");
     app.setApplicationName("flowtunes");
-    app.setApplicationVersion("0.2.0");
 
     // Matches the window to flowtunes.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon. The compiled-in copy covers
